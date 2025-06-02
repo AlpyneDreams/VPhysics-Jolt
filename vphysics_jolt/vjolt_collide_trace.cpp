@@ -213,9 +213,14 @@ public:
 		// Ensure that the contents filter was used
 		VJoltAssert( contents & m_ContentsMask );
 
-#if 0
-		// Test if this collision is closer than the previous one
 		const float theirEarlyOut = inResult.GetEarlyOutFraction();
+		if ( theirEarlyOut < 0.0f )
+			m_bStartSolid = true;
+
+		if ( inResult.mPenetrationAxis.Dot( m_vDisplacement ) <= 0.0f ) // Ignore penetrations that we're moving away from
+			return;
+
+		// Test if this collision is closer than the previous one
 		const float ourEarlyOut = GetEarlyOutFraction();
 		if ( !m_DidHit || theirEarlyOut < ourEarlyOut )
 		{
@@ -231,35 +236,9 @@ public:
 
 			m_DidHit = true;
 			m_HitBackFace = inResult.mIsBackFaceHit;
-		}
-#endif
 
-		const float theirEarlyOut = inResult.GetEarlyOutFraction();
-		if ( theirEarlyOut < 0.0f )
-			m_bStartSolid = true;
-
-		if ( inResult.mPenetrationAxis.Dot( m_vDisplacement ) > 0.0f ) // Ignore penetrations that we're moving away from
-		{
-			// Test if this collision is closer than the previous one
-			const float ourEarlyOut = GetEarlyOutFraction();
-			if ( !m_DidHit || theirEarlyOut < ourEarlyOut )
-			{
-				// Update our early out fraction
-				UpdateEarlyOutFraction( theirEarlyOut );
-
-				m_Fraction = inResult.mFraction;
-				m_ResultContents = contents;
-				m_SubShapeID = inResult.mSubShapeID2;
-				m_ContactPoint = inResult.mContactPointOn2;
-				m_PenetrationAxis = inResult.mPenetrationAxis;
-				m_PenetrationDepth = inResult.mPenetrationDepth;
-
-				m_DidHit = true;
-				m_HitBackFace = inResult.mIsBackFaceHit;
-
-				if ( ourEarlyOut < 0.0f )
-					m_bEndSolid = true;
-			}
+			if ( ourEarlyOut < 0.0f )
+				m_bEndSolid = true;
 		}
 	}
 
