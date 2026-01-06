@@ -131,6 +131,16 @@ public:
 		if ( m_DidHit )
 			return;
 
+		JPH::SubShapeID remainder;
+		if ( const JPH::Shape* subShape = m_pShape->GetLeafShape( inResult.mSubShapeID2, remainder ) )
+		{
+			// A point cannot be "inside" a mesh collider soup
+			if ( subShape->GetType() == JPH::EShapeType::Mesh )
+			{
+				return;
+			}
+		}
+
 		const uint32 gameData = static_cast<uint32>( m_pShape->GetSubShapeUserData( inResult.mSubShapeID2 ) );
 		const uint32 contents = m_pConvexInfo ? m_pConvexInfo->GetContents( gameData ) : CONTENTS_SOLID;
 
@@ -414,6 +424,18 @@ static void CastRay( const Ray_t &ray, uint32 contentsMask, IConvexInfo *pConvex
 static void CollidePoint( const Ray_t &ray, uint32 contentsMask, IConvexInfo *pConvexInfo, const CPhysCollide *pCollide, const Vector &collideOrigin, const QAngle &collideAngles, trace_t *pTrace )
 {
 	const JPH::Shape *pShape = pCollide->ToShape();
+
+	if ( pShape->GetType() == JPH::EShapeType::Mesh )
+	{
+		// A point cannot be "inside" a mesh collider soup
+		pTrace->fraction     = 0.0f;
+		pTrace->startpos     = ray.m_Start + ray.m_StartOffset;
+		pTrace->endpos       = pTrace->startpos;
+		pTrace->allsolid     = false;
+		pTrace->startsolid   = false;
+		pTrace->contents     = 0;
+		return;
+	}
 
 	JPH::Vec3 position = SourceToJolt::Distance( collideOrigin );
 	JPH::Quat rotation = SourceToJolt::Angle( collideAngles );
