@@ -34,7 +34,7 @@ using IVJoltDebugOverlay = IVDebugOverlay;
 #endif
 
 // So we can toggle assertions in this module at our discretion
-#if DEVELOPMENT_ONLY
+#if 0 // DEVELOPMENT_ONLY
 #define VJoltAssert	DevAssert
 #define VJoltAssertMsg DevAssertMsg
 #else
