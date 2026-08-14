@@ -42,6 +42,10 @@ generated_code_*
 *.ixx.ifc.dt.module.json.command
 *.ixx.ifc.dt.module.json
 *.ixx.ifc.dt.d.json
+*.obj.d.json
+*.obj.dt.module.json
+*.obj.dt.d.json
+*.obj.dt.module.json.command
 
 
 # Linux Stuff
