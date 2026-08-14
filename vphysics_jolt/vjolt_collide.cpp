@@ -956,6 +956,45 @@ void JoltPhysicsCollision::DuplicateAndScale( vcollide_t *pOut, const vcollide_t
 
 //-------------------------------------------------------------------------------------------------
 
+bool JoltPhysicsCollision::SupportsCreateCollide2()
+{
+	return true;
+}
+
+CPhysCollide* JoltPhysicsCollision::CreateCollide2( CPhysConvex **pConvex, int convexCount, CPhysPolysoup **pPolysoups, int polysoupCount, const convertconvexparams_t &convertParams )
+{
+	// If we only have one shape, we can just use that directly,
+	// without making a compound shape.
+	if ( convexCount == 1 && polysoupCount == 0 )
+		return pConvex[0]->ToPhysCollide();
+
+	if ( polysoupCount == 1 && convexCount == 0 )
+		return ConvertPolysoupToCollide( pPolysoups[0], false );
+
+	JPH::StaticCompoundShapeSettings settings;
+
+	for ( int i = 0; i < convexCount; i++ )
+	{
+		settings.AddShape( JPH::Vec3::sZero(), JPH::Quat::sIdentity(), pConvex[i]->ToConvexShape() );
+	}
+
+	for ( int i = 0; i < polysoupCount; i++ )
+	{
+		// Convert polysoups to mesh colliders
+		JPH::MeshShapeSettings meshShapeSettings( pPolysoups[i]->Triangles );
+		JPH::Shape::ShapeResult meshShape = meshShapeSettings.Create();
+
+		if ( !meshShape.IsValid() )
+			continue;
+
+		settings.AddShape( JPH::Vec3::sZero(), JPH::Quat::sIdentity(), meshShape.Get() );
+	}
+
+	return ShapeSettingsToPhysCollide( settings );
+}
+
+//-------------------------------------------------------------------------------------------------
+
 const JPH::Shape *CreateCOMOverrideShape( const JPH::Shape* pShape, JPH::Vec3Arg comOverride )
 {
 	JPH::Vec3 comOffset = comOverride - pShape->GetCenterOfMass();

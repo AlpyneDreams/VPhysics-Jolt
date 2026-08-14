@@ -183,6 +183,9 @@ public:
 
 	void			DuplicateAndScale( vcollide_t *pOut, const vcollide_t *pIn, float flScale ) override_csgo;
 
+	bool			SupportsCreateCollide2() override_vitamin;
+	CPhysCollide*	CreateCollide2( CPhysConvex **pConvex, int nConvexCount, CPhysPolysoup **ppPolysoups, int nPolySoups, const convertconvexparams_t &convertParams ) override_vitamin;
+
 public:
 	static JoltPhysicsCollision& GetInstance() { return s_PhysicsCollision; }
 

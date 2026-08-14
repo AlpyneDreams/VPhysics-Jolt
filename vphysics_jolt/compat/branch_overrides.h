@@ -19,6 +19,14 @@
 #define override_not_gmod override
 #endif
 
+#if defined( GAME_VITAMIN )
+#define override_vitamin override
+#define override_not_vitamin
+#else
+#define override_vitamin
+#define override_not_vitamin override
+#endif
+
 #if defined( GAME_CSGO ) || defined( GAME_VITAMIN ) || defined( GAME_PORTAL2 )
 #define GAME_PORTAL2_OR_NEWER
 #define override_portal2 override
