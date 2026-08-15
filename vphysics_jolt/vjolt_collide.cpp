@@ -6,6 +6,7 @@
 
 #include "vjolt_parse.h"
 #include "vjolt_querymodel.h"
+#include "vjolt_environment.h"
 
 #include "vjolt_collide.h"
 
@@ -194,26 +195,6 @@ void JoltPhysicsCollision::DestroyCollide( CPhysCollide *pCollide )
 		return;
 
 	pCollide->ToShape()->Release();
-}
-
-//-------------------------------------------------------------------------------------------------
-
-int JoltPhysicsCollision::CollideSize( CPhysCollide *pCollide )
-{
-	Log_Stub( LOG_VJolt );
-	return 0;
-}
-
-int JoltPhysicsCollision::CollideWrite( char *pDest, CPhysCollide *pCollide, bool bSwap /*= false*/ )
-{
-	Log_Stub( LOG_VJolt );
-	return 0;
-}
-
-CPhysCollide *JoltPhysicsCollision::UnserializeCollide( char *pBuffer, int size, int index )
-{
-	Log_Stub( LOG_VJolt );
-	return nullptr;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -605,6 +586,156 @@ namespace ivp_compat
 	}
 }
 
+//-------------------------------------------------------------------------------------------------
+
+// StreamOut implementation that counts the size required to save the data
+class JoltStreamOutSize final : public JPH::StreamOut
+{
+public:
+	void WriteBytes( const void *inData, size_t inNumBytes ) { m_nSize += inNumBytes; }
+	bool IsFailed() const override { return false; }
+	size_t GetSize() const { return m_nSize; }
+private:
+	size_t m_nSize = 0;
+};
+
+// StreamOut implementation that writes to a pointer
+class JoltPointerStreamOut final : public JPH::StreamOut
+{
+public:
+	JoltPointerStreamOut( void *pDest )
+		: m_pStart( static_cast<byte*>( pDest ) )
+		, m_pData( m_pStart )
+	{
+		VJoltAssert( pDest != nullptr );
+	}
+
+	void WriteBytes( const void *inData, size_t inNumBytes ) override
+	{
+		V_memcpy( m_pData, inData, inNumBytes );
+		m_pData += inNumBytes;
+	}
+
+	bool IsFailed() const override { return false; }
+	size_t GetSize() const { return m_pData - m_pStart; }
+
+private:
+	byte *m_pStart;
+	byte *m_pData;
+};
+
+// StreamIn implementation that reads from a pointer
+class JoltPointerStreamIn final : public JPH::StreamIn
+{
+public:
+	JoltPointerStreamIn( const void *pDest )
+		: m_pStart( static_cast<const byte*>( pDest ) )
+		, m_pData( m_pStart )
+	{
+		VJoltAssert( pDest != nullptr );
+	}
+
+	void ReadBytes( void *outData, size_t inNumBytes )
+	{
+		V_memcpy( outData, m_pData, inNumBytes );
+		m_pData += inNumBytes;
+	}
+
+	bool IsEOF() const override { return false; }
+	bool IsFailed() const override { return false; }
+	size_t GetSize() const { return m_pData - m_pStart; }
+
+private:
+	const byte *m_pStart;
+	const byte *m_pData;
+};
+
+//-------------------------------------------------------------------------------------------------
+
+static constexpr int32	VJOLT_COLLISION_ID		= MAKEID('J','O','L','T');
+static constexpr int32	VJOLT_COLLISION_VERSION	= 0x1'00'00;
+enum
+{
+	COLLIDE_JOLT = 'J' | ( u'P' << 8 )
+};
+
+class JoltCollideData
+{
+private:
+	ivp_compat::collideheader_t header = {
+		.vphysicsID	= ivp_compat::VPHYSICS_COLLISION_ID,
+		.version	= ivp_compat::VPHYSICS_COLLISION_VERSION,
+		.modelType	= COLLIDE_JOLT,
+	};
+	int32 joltCollisionID		= VJOLT_COLLISION_ID;
+	int32 joltCollisionVersion	= VJOLT_COLLISION_VERSION;
+	int64 joltVersion			= JPH_VERSION_ID;
+	uint64 collideSize			= 0;
+
+public:
+	static CPhysCollide *Deserialize( const ivp_compat::collideheader_t *pCollideHeader )
+	{
+		const JoltCollideData *pHeader = reinterpret_cast<const JoltCollideData*>( pCollideHeader );
+
+		if ( pHeader->joltCollisionID != VJOLT_COLLISION_ID )
+		{
+			Log_Warning( LOG_VJolt, "Jolt collider with invalid ID!\n", pHeader->joltVersion );
+			return nullptr;
+		}
+
+		if ( pHeader->joltCollisionVersion != VJOLT_COLLISION_VERSION )
+			Log_Warning( LOG_VJolt, "Jolt collider with unknown collide version: 0x%x, may crash!\n", pHeader->joltVersion );
+
+		if ( byte majorVersion = pHeader->joltVersion >> 16; majorVersion != JPH_VERSION_MAJOR )
+		{
+			static_assert( JPH_VERSION_MAJOR == 5, "Jolt major version changed, make sure that PHY files can still be loaded!" );
+			VJoltAssert( 0 );
+			Log_Warning( LOG_VJolt, "Jolt collider saved from Jolt version %d, expected version %d!\n", int( majorVersion ), JPH_VERSION_MAJOR );
+		}
+
+		JoltPointerStreamIn stream( pHeader + 1 );
+		JPH::Shape::IDToShapeMap idToShape;
+		JPH::Shape::IDToMaterialMap idToMaterial;
+		JPH::Shape::ShapeResult pShape = JPH::Shape::sRestoreWithChildren( stream, idToShape, idToMaterial );
+
+		Assert( stream.GetSize() == pHeader->collideSize );
+
+		return CPhysCollide::FromShape( ToDanglingRef( pShape.Get() ) );
+	}
+
+	static size_t ComputeSize( CPhysCollide *pCollide )
+	{
+		JoltStreamOutSize sizer;
+		JPH::Shape::ShapeToIDMap ioShapeMap;
+		JPH::Shape::MaterialToIDMap ioMaterialMap;
+		pCollide->ToShape()->SaveWithChildren( sizer, ioShapeMap, ioMaterialMap );
+
+		return sizeof( JoltCollideData ) + sizer.GetSize();
+	}
+
+	static size_t Serialize( byte *pDest, CPhysCollide *pCollide )
+	{
+		// Write header
+		JoltCollideData* pCollideData = reinterpret_cast<JoltCollideData *>( pDest );
+		*pCollideData = JoltCollideData();
+		pDest += sizeof( JoltCollideData );
+
+		// Write collide
+		JoltPointerStreamOut stream( pDest );
+		JPH::Shape::ShapeToIDMap ioShapeMap;
+		JPH::Shape::MaterialToIDMap ioMaterialMap;
+		pCollide->ToShape()->SaveWithChildren( stream, ioShapeMap, ioMaterialMap );
+
+		// Write size
+		size_t size = stream.GetSize();
+		pCollideData->collideSize = size;
+
+		return sizeof( JoltCollideData ) + size;
+	}
+};
+
+//-------------------------------------------------------------------------------------------------
+
 void JoltPhysicsCollision::VCollideLoad( vcollide_t *pOutput, int solidCount, const char *pBuffer, int size, bool swap /*= false*/ )
 {
 	if ( swap )
@@ -640,6 +771,10 @@ void JoltPhysicsCollision::VCollideLoad( vcollide_t *pOutput, int solidCount, co
 			{
 				case ivp_compat::COLLIDE_POLY:
 					pOutput->solids[ i ] = DeserializeIVP_Poly( pCollideHeader );
+					break;
+
+				case COLLIDE_JOLT:
+					pOutput->solids[i] = JoltCollideData::Deserialize( pCollideHeader );
 					break;
 
 				case ivp_compat::COLLIDE_MOPP:
@@ -712,6 +847,36 @@ void JoltPhysicsCollision::VCollideUnload( vcollide_t *pVCollide )
 	delete[] pVCollide->solids;
 	delete[] pVCollide->pKeyValues;
 	V_memset( pVCollide, 0, sizeof( *pVCollide ) );
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int JoltPhysicsCollision::CollideSize( CPhysCollide *pCollide )
+{
+	if ( !pCollide )
+		return 0;
+
+	return static_cast<int>( JoltCollideData::ComputeSize( pCollide ) );
+}
+
+int JoltPhysicsCollision::CollideWrite( char *pDest, CPhysCollide *pCollide, bool bSwap /*= false*/ )
+{
+	if ( !pCollide )
+		return 0;
+
+	if ( bSwap )
+	{
+		Log_Error( LOG_VJolt, "If you got here. Tell me what you did!\n" );
+		return 0;
+	}
+
+	return static_cast<int>( JoltCollideData::Serialize( reinterpret_cast<byte *>( pDest ), pCollide ) );
+}
+
+CPhysCollide *JoltPhysicsCollision::UnserializeCollide( char *pBuffer, int size, int index )
+{
+	Log_Stub( LOG_VJolt );
+	return nullptr;
 }
 
 //-------------------------------------------------------------------------------------------------
