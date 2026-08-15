@@ -736,6 +736,71 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 
+static CPhysCollide *DeserializeCollide( const char *pData, int size, int index )
+{
+	const ivp_compat::collideheader_t *pCollideHeader = reinterpret_cast<const ivp_compat::collideheader_t *>( pData );
+
+	if ( pCollideHeader->vphysicsID == ivp_compat::VPHYSICS_COLLISION_ID )
+	{
+		// This is the main path that everything falls down for a modern
+		// .phy file with the collide header.
+
+		if ( pCollideHeader->version != ivp_compat::VPHYSICS_COLLISION_VERSION )
+			Log_Warning( LOG_VJolt, "Solid with unknown version: 0x%x, may crash!\n", pCollideHeader->version );
+
+		switch ( pCollideHeader->modelType )
+		{
+			case ivp_compat::COLLIDE_POLY:
+				return DeserializeIVP_Poly( pCollideHeader );
+
+			case COLLIDE_JOLT:
+				return JoltCollideData::Deserialize( pCollideHeader );
+
+			case ivp_compat::COLLIDE_MOPP:
+				Log_Warning( LOG_VJolt, "Unsupported solid type COLLIDE_MOPP on solid %d. Skipping...\n", index );
+				break;
+	
+			case ivp_compat::COLLIDE_BALL:
+				Log_Warning( LOG_VJolt, "Unsupported solid type COLLIDE_BALL on solid %d. Skipping...\n", index );
+				break;
+
+			case ivp_compat::COLLIDE_VIRTUAL:
+				Log_Warning( LOG_VJolt, "Unsupported solid type COLLIDE_VIRTUAL on solid %d. Skipping...\n", index );
+				break;
+
+			default:
+				Log_Warning( LOG_VJolt, "Unsupported solid type 0x%x on solid %d. Skipping...\n", (int)pCollideHeader->modelType, index );
+				break;
+		}
+	}
+	else
+	{
+		// This must be a legacy style .phy where it is just a dumped compact surface.
+		// Some props in shipping HL2 still use this format, as they have a .phy, even after their
+		// .qc had the $collisionmodel removed, as they didn't get the stale .phy in the game files deleted.
+
+		const ivp_compat::compactsurface_t *pCompactSurface = reinterpret_cast<const ivp_compat::compactsurface_t *>( pData );
+		const int legacyModelType = pCompactSurface->dummy[2];
+		switch ( legacyModelType )
+		{
+			case ivp_compat::IVP_COMPACT_SURFACE_SUPER_LEGACY:
+			case ivp_compat::IVP_COMPACT_SURFACE_ID:
+			case ivp_compat::IVP_COMPACT_SURFACE_ID_SWAPPED:
+				return DeserializeIVP_Poly( pCompactSurface );
+
+			case ivp_compat::IVP_COMPACT_MOPP_ID:
+				Log_Warning( LOG_VJolt, "Unsupported legacy solid type IVP_COMPACT_MOPP_ID on solid %d. Skipping...\n", index );
+				break;
+
+			default:
+				Log_Warning( LOG_VJolt, "Unsupported legacy solid type 0x%x on solid %d. Skipping...\n", legacyModelType, index );
+				break;
+		}
+	}
+
+	return nullptr;
+}
+
 void JoltPhysicsCollision::VCollideLoad( vcollide_t *pOutput, int solidCount, const char *pBuffer, int size, bool swap /*= false*/ )
 {
 	if ( swap )
@@ -757,68 +822,7 @@ void JoltPhysicsCollision::VCollideLoad( vcollide_t *pOutput, int solidCount, co
 		const int solidSize = *reinterpret_cast<const int *>( pCursor );
 		pCursor += sizeof( int );
 
-		const ivp_compat::collideheader_t *pCollideHeader = reinterpret_cast<const ivp_compat::collideheader_t *>( pCursor );
-
-		if ( pCollideHeader->vphysicsID == ivp_compat::VPHYSICS_COLLISION_ID )
-		{
-			// This is the main path that everything falls down for a modern
-			// .phy file with the collide header.
-
-			if ( pCollideHeader->version != ivp_compat::VPHYSICS_COLLISION_VERSION )
-				Log_Warning( LOG_VJolt, "Solid with unknown version: 0x%x, may crash!\n", pCollideHeader->version );
-
-			switch ( pCollideHeader->modelType )
-			{
-				case ivp_compat::COLLIDE_POLY:
-					pOutput->solids[ i ] = DeserializeIVP_Poly( pCollideHeader );
-					break;
-
-				case COLLIDE_JOLT:
-					pOutput->solids[i] = JoltCollideData::Deserialize( pCollideHeader );
-					break;
-
-				case ivp_compat::COLLIDE_MOPP:
-					Log_Warning( LOG_VJolt, "Unsupported solid type COLLIDE_MOPP on solid %d. Skipping...\n", i );
-					break;
-	
-				case ivp_compat::COLLIDE_BALL:
-					Log_Warning( LOG_VJolt, "Unsupported solid type COLLIDE_BALL on solid %d. Skipping...\n", i );
-					break;
-
-				case ivp_compat::COLLIDE_VIRTUAL:
-					Log_Warning( LOG_VJolt, "Unsupported solid type COLLIDE_VIRTUAL on solid %d. Skipping...\n", i );
-					break;
-
-				default:
-					Log_Warning( LOG_VJolt, "Unsupported solid type 0x%x on solid %d. Skipping...\n", (int)pCollideHeader->modelType, i );
-					break;
-			}
-		}
-		else
-		{
-			// This must be a legacy style .phy where it is just a dumped compact surface.
-			// Some props in shipping HL2 still use this format, as they have a .phy, even after their
-			// .qc had the $collisionmodel removed, as they didn't get the stale .phy in the game files deleted.
-
-			const ivp_compat::compactsurface_t *pCompactSurface = reinterpret_cast<const ivp_compat::compactsurface_t *>( pCursor );
-			const int legacyModelType = pCompactSurface->dummy[2];
-			switch ( legacyModelType )
-			{
-				case ivp_compat::IVP_COMPACT_SURFACE_SUPER_LEGACY:
-				case ivp_compat::IVP_COMPACT_SURFACE_ID:
-				case ivp_compat::IVP_COMPACT_SURFACE_ID_SWAPPED:
-					pOutput->solids[i] = DeserializeIVP_Poly( pCompactSurface );
-					break;
-
-				case ivp_compat::IVP_COMPACT_MOPP_ID:
-					Log_Warning( LOG_VJolt, "Unsupported legacy solid type IVP_COMPACT_MOPP_ID on solid %d. Skipping...\n", i );
-					break;
-
-				default:
-					Log_Warning( LOG_VJolt, "Unsupported legacy solid type 0x%x on solid %d. Skipping...\n", legacyModelType, i);
-					break;
-			}
-		}
+		pOutput->solids[ i ] = DeserializeCollide( pCursor, solidSize, i );
 
 		pCursor += solidSize;
 	}
@@ -875,8 +879,7 @@ int JoltPhysicsCollision::CollideWrite( char *pDest, CPhysCollide *pCollide, boo
 
 CPhysCollide *JoltPhysicsCollision::UnserializeCollide( char *pBuffer, int size, int index )
 {
-	Log_Stub( LOG_VJolt );
-	return nullptr;
+	return DeserializeCollide( pBuffer, size, index );
 }
 
 //-------------------------------------------------------------------------------------------------
