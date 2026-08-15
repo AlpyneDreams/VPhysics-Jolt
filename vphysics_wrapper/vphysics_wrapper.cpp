@@ -25,6 +25,8 @@
 class PhysicsWrapper final : public CBaseAppSystem<IPhysics>
 {
 public:
+	PhysicsWrapper();
+
 	bool Connect( CreateInterfaceFn factory ) override;
 	void Disconnect() override;
 
@@ -45,6 +47,8 @@ public:
 
 public:
 	static PhysicsWrapper &GetInstance() { return s_PhysicsInterface; }
+	static IPhysicsCollision &GetPhysicsCollision() { return *s_pPhysicsCollision; }
+	static IPhysicsSurfaceProps &GetPhysicsSurfaceProps() { return *s_pPhysicsSurfaceProps; }
 
 private:
 	bool InitWrapper();
@@ -53,10 +57,18 @@ private:
 	IPhysics *m_pActualPhysicsInterface;
 
 	static PhysicsWrapper s_PhysicsInterface;
+	static IPhysicsCollision *s_pPhysicsCollision;
+	static IPhysicsSurfaceProps *s_pPhysicsSurfaceProps;
 };
 
 PhysicsWrapper PhysicsWrapper::s_PhysicsInterface;
 EXPOSE_SINGLE_INTERFACE_GLOBALVAR( PhysicsWrapper, IPhysics, VPHYSICS_INTERFACE_VERSION, PhysicsWrapper::GetInstance() );
+
+IPhysicsCollision *PhysicsWrapper::s_pPhysicsCollision = nullptr;
+EXPOSE_SINGLE_INTERFACE_GLOBALVAR( JoltPhysicsCollision, IPhysicsCollision, VPHYSICS_COLLISION_INTERFACE_VERSION, PhysicsWrapper::GetPhysicsCollision() );
+
+IPhysicsSurfaceProps *PhysicsWrapper::s_pPhysicsSurfaceProps = nullptr;
+EXPOSE_SINGLE_INTERFACE_GLOBALVAR( JoltPhysicsSurfaceProps, IPhysicsSurfaceProps, VPHYSICS_SURFACEPROPS_INTERFACE_VERSION, PhysicsWrapper::GetPhysicsSurfaceProps() );
 
 //-------------------------------------------------------------------------------------------------
 
@@ -122,7 +134,25 @@ bool PhysicsWrapper::InitWrapper()
 	if ( !Sys_LoadInterface( pModuleName, VPHYSICS_INTERFACE_VERSION, &m_pActualPhysicsModule, (void **)&m_pActualPhysicsInterface ) )
 		return false;
 
+	if ( m_pActualPhysicsModule )
+	{
+		// Get all the other interfaces
+		CreateInterfaceFn factory = Sys_GetFactory( m_pActualPhysicsModule );
+		if ( factory )
+		{
+			s_pPhysicsCollision = static_cast<IPhysicsCollision *>( factory( VPHYSICS_COLLISION_INTERFACE_VERSION, nullptr ) );
+			s_pPhysicsSurfaceProps = static_cast<IPhysicsSurfaceProps *>( factory( VPHYSICS_SURFACEPROPS_INTERFACE_VERSION, nullptr ) );
+		}
+	}
+
 	return true;
+}
+
+PhysicsWrapper::PhysicsWrapper()
+{
+	// Load the actual module immediately so our
+	// CreateInterface can return all interfaces from it
+	InitWrapper();
 }
 
 bool PhysicsWrapper::Connect( CreateInterfaceFn factory )
