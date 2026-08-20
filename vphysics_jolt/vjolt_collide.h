@@ -6,7 +6,18 @@
 
 #pragma once
 
+#ifdef GAME_VITAMIN
+// IVP supports polysoup surfaceprops, but vphysics typically only uses them
+// for per-material impact/friction solving, Friction() events, and querymodel,
+// which we don't support, so we only enable this on engine branches that use it.
+#define USE_POLYSOUP_SURFACEPROPS
+#endif
+
 #include "coordsize.h"
+
+#ifdef USE_POLYSOUP_SURFACEPROPS
+#include <bitset>
+#endif
 
 //-------------------------------------------------------------------------------------------------
 
@@ -87,6 +98,12 @@ class CPhysPolysoup
 {
 public:
 	JPH::TriangleList Triangles;
+
+#ifdef USE_POLYSOUP_SURFACEPROPS
+	static constexpr size_t kMaxMaterialIndex = 128;
+	std::bitset<kMaxMaterialIndex> UsedMaterials;
+	size_t MaterialCount = 0;
+#endif
 };
 
 //-------------------------------------------------------------------------------------------------

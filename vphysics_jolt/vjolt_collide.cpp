@@ -7,6 +7,7 @@
 #include "vjolt_parse.h"
 #include "vjolt_querymodel.h"
 #include "vjolt_environment.h"
+#include "vjolt_surfaceprops.h"
 
 #include "vjolt_collide.h"
 
@@ -146,7 +147,21 @@ void JoltPhysicsCollision::PolysoupDestroy( CPhysPolysoup *pSoup )
 
 void JoltPhysicsCollision::PolysoupAddTriangle( CPhysPolysoup *pSoup, const Vector &a, const Vector &b, const Vector &c, int materialIndex7bits )
 {
+#ifdef USE_POLYSOUP_SURFACEPROPS
+	uint32 materialIndex = materialIndex7bits & 0x7F;
+	if ( materialIndex != 0 ) // the default material 0 is always included
+	{
+		if ( !pSoup->UsedMaterials.test( materialIndex ) )
+		{
+			pSoup->UsedMaterials.set( materialIndex );
+			pSoup->MaterialCount++;
+		}
+	}
+
+	pSoup->Triangles.push_back( JPH::Triangle( SourceToJolt::DistanceFloat3( a ), SourceToJolt::DistanceFloat3( b ), SourceToJolt::DistanceFloat3( c ), materialIndex ) );
+#else
 	pSoup->Triangles.push_back( JPH::Triangle( SourceToJolt::DistanceFloat3( a ), SourceToJolt::DistanceFloat3( b ), SourceToJolt::DistanceFloat3( c ) ) );
+#endif
 }
 
 CPhysCollide *JoltPhysicsCollision::ConvertPolysoupToCollide( CPhysPolysoup *pSoup, bool useMOPP )
@@ -156,8 +171,49 @@ CPhysCollide *JoltPhysicsCollision::ConvertPolysoupToCollide( CPhysPolysoup *pSo
 	if ( useMOPP )
 		return nullptr;
 
+	JPH::PhysicsMaterialList materials;
+
+#ifdef USE_POLYSOUP_SURFACEPROPS
+	if ( pSoup->MaterialCount > 0 )
+	{
+		const JoltPhysicsSurfaceProps &physprops = JoltPhysicsSurfaceProps::GetInstance();
+
+		pSoup->MaterialCount = Min( pSoup->MaterialCount, CPhysPolysoup::kMaxMaterialIndex );
+
+		// IVP supports up to kMaxMaterialIndex on a polysoup, but Jolt only supports
+		// up to 32 PhysicsMaterials per shape. So we have to remap the indices here.
+		uint32 materialIndices[ CPhysPolysoup::kMaxMaterialIndex ] = { 0 };
+		materials.reserve( pSoup->MaterialCount + 1 );
+
+		// Add the default material
+		materials.emplace_back( physprops.GetPhysicsMaterial( 0 ) );
+		materialIndices[ 0 ] = 0;
+
+		// Add all used materials
+		uint32 index = 1;
+		for ( int i = 1; i < CPhysPolysoup::kMaxMaterialIndex; i++ )
+		{
+			if ( pSoup->UsedMaterials.test( i ) )
+			{
+				materialIndices[ i ] = index++;
+				materials.emplace_back( physprops.GetPhysicsMaterial( i ) );
+			}
+		}
+
+		// Remap all triangles to use indices from the list of used materials
+		for ( size_t i = 0; i < pSoup->Triangles.size(); ++i )
+		{
+			JPH::Triangle &triangle = pSoup->Triangles[i];
+			if ( triangle.mMaterialIndex <= 0 || triangle.mMaterialIndex >= CPhysPolysoup::kMaxMaterialIndex )
+				continue;
+
+			triangle.mMaterialIndex = materialIndices[ triangle.mMaterialIndex ];
+		}
+	}
+#endif
+	
 	// ConvertPolysoupToCollide does NOT free the Polysoup.
-	JPH::MeshShapeSettings settings( pSoup->Triangles );
+	JPH::MeshShapeSettings settings( pSoup->Triangles, materials );
 	return ShapeSettingsToPhysCollide( settings );
 }
 
@@ -696,6 +752,17 @@ public:
 		JoltPointerStreamIn stream( pHeader + 1 );
 		JPH::Shape::IDToShapeMap idToShape;
 		JPH::Shape::IDToMaterialMap idToMaterial;
+
+#ifdef USE_POLYSOUP_SURFACEPROPS
+		// Read any surfaceprops
+		const JoltPhysicsSurfaceProps &physprops = JoltPhysicsSurfaceProps::GetInstance();
+		int numProps = physprops.SurfacePropCount();
+		for ( int i = 0; i < numProps && i < idToMaterial.size(); i++ )
+		{
+			idToMaterial[ i ] = physprops.GetPhysicsMaterial( i );
+		}
+#endif
+
 		JPH::Shape::ShapeResult pShape = JPH::Shape::sRestoreWithChildren( stream, idToShape, idToMaterial );
 
 		Assert( stream.GetSize() == pHeader->collideSize );
@@ -724,6 +791,17 @@ public:
 		JoltPointerStreamOut stream( pDest );
 		JPH::Shape::ShapeToIDMap ioShapeMap;
 		JPH::Shape::MaterialToIDMap ioMaterialMap;
+
+#ifdef USE_POLYSOUP_SURFACEPROPS
+		// Get all surfaceprops
+		const JoltPhysicsSurfaceProps &physprops = JoltPhysicsSurfaceProps::GetInstance();
+		int numProps = physprops.SurfacePropCount();
+		for ( int i = 0; i < numProps; i++ )
+		{
+			ioMaterialMap[ physprops.GetPhysicsMaterial( i ) ] = i;
+		}
+#endif
+
 		pCollide->ToShape()->SaveWithChildren( stream, ioShapeMap, ioMaterialMap );
 
 		// Write size
@@ -1149,13 +1227,11 @@ CPhysCollide* JoltPhysicsCollision::CreateCollide2( CPhysConvex **pConvex, int c
 	for ( int i = 0; i < polysoupCount; i++ )
 	{
 		// Convert polysoups to mesh colliders
-		JPH::MeshShapeSettings meshShapeSettings( pPolysoups[i]->Triangles );
-		JPH::Shape::ShapeResult meshShape = meshShapeSettings.Create();
-
-		if ( !meshShape.IsValid() )
+		CPhysCollide *meshCollider = ConvertPolysoupToCollide( pPolysoups[i], false );
+		if ( !meshCollider )
 			continue;
 
-		settings.AddShape( JPH::Vec3::sZero(), JPH::Quat::sIdentity(), meshShape.Get() );
+		settings.AddShape( JPH::Vec3::sZero(), JPH::Quat::sIdentity(), meshCollider->ToShape() );
 	}
 
 	return ShapeSettingsToPhysCollide( settings );
