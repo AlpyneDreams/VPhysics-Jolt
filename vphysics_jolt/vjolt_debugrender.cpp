@@ -12,6 +12,7 @@
 
 #include "materialsystem/imaterialsystem.h"
 #include "materialsystem/imesh.h"
+#include "tier1/callqueue.h"
 
 #include "vjolt_debugrender.h"
 
@@ -59,8 +60,18 @@ JoltPhysicsDebugRenderer::BatchImpl::~BatchImpl()
 		return;
 
 	CMatRenderContextPtr pRenderContext( g_pMaterialSystem );
-	for (int i = 0; i < m_Meshes.Count(); i++)
-		pRenderContext->DestroyStaticMesh( m_Meshes[i] );
+	if ( ICallQueue *pQueue = pRenderContext->GetCallQueue() )
+	{
+		pQueue->QueueCall( [&] {
+			for ( int i = 0; i < m_Meshes.Count(); i++ )
+				pRenderContext->DestroyStaticMesh( m_Meshes[i] );
+		} );
+	}
+	else
+	{
+		for (int i = 0; i < m_Meshes.Count(); i++)
+			pRenderContext->DestroyStaticMesh( m_Meshes[i] );
+	}
 }
 
 void JoltPhysicsDebugRenderer::DrawLine( JPH::Vec3Arg inFrom, JPH::Vec3Arg inTo, JPH::ColorArg inColor )
@@ -100,7 +111,7 @@ JoltPhysicsDebugRenderer::Batch JoltPhysicsDebugRenderer::CreateTriangleBatch( c
 	IMesh* pFirstMesh = pRenderContext->CreateStaticMesh( fmt, JOLT_VERTEX_BUFFER_NAME );
 
 	int maxVerts, maxIndices;
-	pRenderContext->GetMaxToRender( pFirstMesh, true, &maxVerts, &maxIndices );
+	pRenderContext->GetMaxToRender( pFirstMesh, false, &maxVerts, &maxIndices );
 
 	// Divide into maximally sized batches (aligned to tris)
 	int batchSize = maxVerts / 3;
