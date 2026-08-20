@@ -91,6 +91,8 @@ InitReturnVal_t JoltPhysicsInterface::Init()
 	// Register all Jolt physics types
 	JPH::RegisterTypes();
 
+	JPH::Factory::sInstance->Register( JPH_RTTI( JoltSurfaceMaterial ) );
+
 	// Create an allocator for temporary allocations during physics simulations
 	m_pTempAllocator = new JPH::TempAllocatorImpl( kTempAllocSize );
 

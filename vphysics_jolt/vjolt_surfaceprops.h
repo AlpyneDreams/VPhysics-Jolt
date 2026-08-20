@@ -6,6 +6,42 @@ struct JoltSurfaceProp
 	surfacedata_t data;
 };
 
+//-------------------------------------------------------------------------------------------------
+
+class JoltSurfaceMaterial final : public JPH::PhysicsMaterialSimple
+{
+	using RTTI = JPH::RTTI;
+	JPH_DECLARE_RTTI_VIRTUAL( JPH_NO_EXPORT, JoltSurfaceMaterial )
+public:
+	JoltSurfaceMaterial() = default;
+	JoltSurfaceMaterial( const std::string_view& inName, int inIndex );
+
+	void SaveBinaryState( JPH::StreamOut& inStream ) const override;
+	void RestoreBinaryState( JPH::StreamIn& inStream ) override;
+
+	int GetIndex() const { return m_Index; }
+
+private:
+	int m_Index = 0;
+};
+
+using JoltSurfaceMaterialRef = JPH::Ref<JoltSurfaceMaterial>;
+
+//-------------------------------------------------------------------------------------------------
+
+inline int GetSurfaceProp( const JPH::Shape *pShape, JPH::SubShapeID subShapeID )
+{
+	const JPH::PhysicsMaterial *pMaterial = pShape->GetMaterial( subShapeID );
+	if ( const JoltSurfaceMaterial *pSurfaceProps = JPH::DynamicCast<JoltSurfaceMaterial>( pMaterial ) )
+	{
+		return pSurfaceProps->GetIndex();
+	}
+
+	return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 class JoltPhysicsMaterialIndexSaveOps : public CDefSaveRestoreOps
 {
 public:
@@ -20,6 +56,8 @@ public:
 private:
 	static JoltPhysicsMaterialIndexSaveOps s_Instance;
 };
+
+//-------------------------------------------------------------------------------------------------
 
 class JoltPhysicsSurfaceProps final : public IPhysicsSurfaceProps
 {
@@ -55,11 +93,16 @@ public:
 
 	unsigned short		RegisterSound( const char *pName );
 
+	JoltSurfaceMaterial* GetPhysicsMaterial( int index ) const;
+
 private:
+	const JoltSurfaceMaterial *CreatePhysicsMaterial( const char *name, const JoltSurfaceProp &data );
+
 	static JoltPhysicsSurfaceProps s_PhysicsSurfaceProps;
 
 	CUtlStringMap< JoltSurfaceProp >	m_SurfaceProps;
 	CUtlSymbolTable						m_SoundStrings;
+	JPH::Array<JoltSurfaceMaterialRef>	m_Materials;
 	
 	static constexpr UtlSymId_t BaseMaterialIdx = UtlSymId_t( 0 );
 

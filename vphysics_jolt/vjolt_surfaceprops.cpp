@@ -16,6 +16,14 @@ EXPOSE_SINGLE_INTERFACE_GLOBALVAR( JoltPhysicsSurfaceProps, IPhysicsSurfaceProps
 
 //-------------------------------------------------------------------------------------------------
 
+using JPH::RTTI;
+JPH_IMPLEMENT_RTTI_VIRTUAL( JoltSurfaceMaterial )
+{
+	JPH_ADD_BASE_CLASS( JoltSurfaceMaterial, JPH::PhysicsMaterialSimple )
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static const JoltKVSchemaProp_t kSurfacePropDescs[] =
 {
 	// Base Property
@@ -89,6 +97,28 @@ static const JoltKVSchemaProp_t kSurfacePropDescs[] =
 
 //-------------------------------------------------------------------------------------------------
 
+JoltSurfaceMaterial::JoltSurfaceMaterial( const std::string_view& inName, int inIndex )
+	: JPH::PhysicsMaterialSimple( inName, inIndex ? JPH::Color::sGetDistinctColor( inIndex ) : JPH::Color::sWhite )
+	, m_Index( inIndex )
+{
+}
+
+void JoltSurfaceMaterial::SaveBinaryState( JPH::StreamOut& inStream ) const
+{
+	JPH::PhysicsMaterialSimple::SaveBinaryState( inStream );
+
+	inStream.Write( m_Index );
+}
+
+void JoltSurfaceMaterial::RestoreBinaryState( JPH::StreamIn& inStream )
+{
+	JPH::PhysicsMaterialSimple::RestoreBinaryState( inStream );
+
+	inStream.Read( m_Index );
+}
+
+//-------------------------------------------------------------------------------------------------
+
 JoltPhysicsSurfaceProps::JoltPhysicsSurfaceProps()
 {
 	JoltSurfaceProp prop = {};
@@ -97,7 +127,8 @@ JoltPhysicsSurfaceProps::JoltPhysicsSurfaceProps()
 	prop.data.physics.density		= 2000.0f;
 	prop.data.physics.thickness		= 0.0f;
 	prop.data.physics.dampening		= 0.0f;
-	m_SurfaceProps[ "default" ] = prop;
+	const JoltSurfaceMaterial *material = CreatePhysicsMaterial( "default", prop );
+	Assert( material->GetIndex() == BaseMaterialIdx );
 
 	// Game code uses 0 as invalid index, expects empty string
 	m_SoundStrings.AddString("");
@@ -128,7 +159,7 @@ int JoltPhysicsSurfaceProps::ParseSurfaceData( const char *pFilename, const char
 		// If we don't have this already, add it,
 		// otherwise update the values.
 		if ( id == m_SurfaceProps.InvalidIndex() )
-			m_SurfaceProps[ pSurfaceName ] = values;
+			CreatePhysicsMaterial( pSurfaceName, values );
 		else
 			m_SurfaceProps[ id ] = values;
 	}
@@ -139,6 +170,22 @@ int JoltPhysicsSurfaceProps::ParseSurfaceData( const char *pFilename, const char
 int JoltPhysicsSurfaceProps::SurfacePropCount( void ) const
 {
 	return int ( m_SurfaceProps.GetNumStrings() );
+}
+
+//-------------------------------------------------------------------------------------------------
+
+const JoltSurfaceMaterial *JoltPhysicsSurfaceProps::CreatePhysicsMaterial( const char *name, const JoltSurfaceProp &data )
+{
+	UtlSymId_t id = m_SurfaceProps.AddString( name );
+	m_SurfaceProps[ id ] = data;
+
+	JoltSurfaceMaterial *material = new JoltSurfaceMaterial( name, int( id ) );
+
+	if ( id >= m_Materials.size() )
+		m_Materials.resize( id + 1 );
+	m_Materials[ id ] = material;
+
+	return material;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -168,6 +215,15 @@ void JoltPhysicsSurfaceProps::GetPhysicsProperties( int surfaceDataIndex, float 
 }
 
 //-------------------------------------------------------------------------------------------------
+
+JoltSurfaceMaterial *JoltPhysicsSurfaceProps::GetPhysicsMaterial( int surfaceDataIndex ) const
+{
+	const UtlSymId_t id = surfaceDataIndex >= 0 && surfaceDataIndex < int( m_SurfaceProps.GetNumStrings() )
+		? UtlSymId_t( surfaceDataIndex )
+		: BaseMaterialIdx;
+
+	return m_Materials[ id ];
+}
 
 surfacedata_t *JoltPhysicsSurfaceProps::GetSurfaceData( int surfaceDataIndex )
 {
