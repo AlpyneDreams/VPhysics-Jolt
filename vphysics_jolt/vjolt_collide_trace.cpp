@@ -12,6 +12,7 @@
 
 #include "vjolt_debugrender.h"
 #include "vjolt_util.h"
+#include "vjolt_surfaceprops.h"
 
 #include "vjolt_collide.h"
 
@@ -64,6 +65,20 @@ static void PrintTrace( const trace_t *tr, JoltPhysicsDebugRenderer &debugRender
 }
 
 #endif
+
+static inline void FinishTrace( trace_t *pTrace, bool hit, const JPH::Shape* pShape, JPH::SubShapeID subShapeID )
+{
+#ifdef GAME_VITAMIN
+	if ( hit )
+	{
+		int surfaceProps = GetSurfaceProp( pShape, subShapeID );
+		if ( surfaceProps > 0 )
+		{
+			pTrace->surface.surfaceProps = surfaceProps;
+		}
+	}
+#endif
+}
 
 //
 // Collector for VJolt_CastRay
@@ -393,6 +408,8 @@ static void CastRay( const Ray_t &ray, uint32 contentsMask, IConvexInfo *pConvex
 		pTrace->contents = collector.m_ResultContents;
 	}
 
+	FinishTrace( pTrace, collector.m_DidHit, pShape, collector.m_SubShapeID );
+
 #if defined JPH_DEBUG_RENDERER
 
 	// Debug trace visualizing
@@ -434,6 +451,7 @@ static void CollidePoint( const Ray_t &ray, uint32 contentsMask, IConvexInfo *pC
 		pTrace->allsolid     = false;
 		pTrace->startsolid   = false;
 		pTrace->contents     = 0;
+		FinishTrace( pTrace, false, pShape, {} );
 		return;
 	}
 
@@ -455,6 +473,8 @@ static void CollidePoint( const Ray_t &ray, uint32 contentsMask, IConvexInfo *pC
 
 	// This will be zero if we didn't hit
 	pTrace->contents = collector.m_ResultContents;
+
+	FinishTrace( pTrace, collector.m_DidHit, pShape, collector.m_SubShapeID );
 
 #if defined JPH_DEBUG_RENDERER
 
@@ -570,6 +590,8 @@ static void CastBoxVsShape( const Ray_t &ray, uint32 contentsMask, IConvexInfo *
 		pTrace->startsolid = false;
 	}
 
+	FinishTrace( pTrace, collector.m_DidHit, pShape, collector.m_SubShapeID );
+
 #if defined JPH_DEBUG_RENDERER
 	// Debug trace visualizing
 	IVJoltDebugOverlay *pOverlay = JoltPhysicsInterface::GetInstance().GetDebugOverlay();
@@ -655,6 +677,8 @@ static void CollideBoxVsShape( const Ray_t &ray, uint32 contentsMask, IConvexInf
 
 		pTrace->contents = collector.m_ResultContents;
 	}
+
+	FinishTrace( pTrace, collector.m_DidHit, pShape, collector.m_SubShapeID );
 
 #if defined JPH_DEBUG_RENDERER
 
