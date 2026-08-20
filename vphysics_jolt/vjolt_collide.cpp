@@ -791,17 +791,6 @@ public:
 		JoltPointerStreamOut stream( pDest );
 		JPH::Shape::ShapeToIDMap ioShapeMap;
 		JPH::Shape::MaterialToIDMap ioMaterialMap;
-
-#ifdef USE_POLYSOUP_SURFACEPROPS
-		// Get all surfaceprops
-		const JoltPhysicsSurfaceProps &physprops = JoltPhysicsSurfaceProps::GetInstance();
-		int numProps = physprops.SurfacePropCount();
-		for ( int i = 0; i < numProps; i++ )
-		{
-			ioMaterialMap[ physprops.GetPhysicsMaterial( i ) ] = i;
-		}
-#endif
-
 		pCollide->ToShape()->SaveWithChildren( stream, ioShapeMap, ioMaterialMap );
 
 		// Write size
